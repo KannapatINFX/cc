@@ -1,0 +1,374 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Cashflow Canvas — Single-File App (v1.1)</title>
+<style>
+  :root { --fg:#111; --muted:#666; --bg:#fff; --line:#ddd; }
+  html,body{margin:0;padding:0;background:var(--bg);color:var(--fg);font:14px/1.45 system-ui,-apple-system,Segoe UI,Roboto,Arial;}
+  header{padding:12px 16px;border-bottom:1px solid var(--line);display:flex;gap:12px;align-items:center;flex-wrap:wrap}
+  header h1{font-size:18px;margin:0}
+  main{display:grid;grid-template-columns:340px 1fr;gap:16px;padding:16px}
+  @media (max-width: 980px){ main{grid-template-columns:1fr} }
+  fieldset{border:1px solid var(--line);border-radius:8px;padding:12px;margin:0}
+  legend{padding:0 6px;color:var(--muted)}
+  .row{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+  label{display:flex;flex-direction:column;gap:4px;margin:6px 0}
+  input,select,button,textarea{padding:8px;border:1px solid var(--line);border-radius:6px;font:inherit}
+  table{width:100%;border-collapse:collapse;font-size:13px}
+  th,td{border-bottom:1px solid var(--line);padding:6px 8px;text-align:left}
+  .muted{color:var(--muted)}
+  .pill{display:inline-flex;align-items:center;gap:6px;border:1px solid var(--line);padding:6px 8px;border-radius:6px;background:#fafafa}
+  .stack{display:flex;flex-direction:column;gap:8px}
+  .flex{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+  .right{display:flex;justify-content:flex-end}
+  .danger{color:#b91c1c}
+  .ok{color:#166534}
+  canvas{width:100%;height:320px;border:1px solid var(--line);border-radius:8px;background:#fff}
+  .banner{display:flex;gap:8px;align-items:center;margin-left:auto;font-size:13px}
+  .badge{padding:4px 8px;border-radius:999px;border:1px solid var(--line);background:#f3f4f6}
+  .hint{background:#fff3cd;border:1px solid #ffe69c;color:#664d03;padding:8px;border-radius:8px;margin:8px 16px}
+  .kbd{font-family:ui-monospace,Menlo,Consolas,monospace;background:#f5f5f5;border:1px solid #e5e5e5;border-radius:6px;padding:2px 6px}
+</style>
+</head>
+<body>
+<div class="hint" id="noscript-hint">
+  ℹ️ ถ้ากดปุ่มแล้วไม่อัปเดต แสดงว่าเบราว์เซอร์กำลังเปิดเป็นโหมด “พรีวิว” ที่ปิด JavaScript (เช่น Quick Look ใน iOS).
+  ให้กดปุ่ม <span class="kbd">แชร์</span> → <strong>Open in Safari</strong> หรือกดเมนู <span class="kbd">⋯</span> แล้วเลือก <strong>Open in Browser</strong> จากนั้นลองใหม่อีกครั้ง
+</div>
+
+<header>
+  <h1>💸 Cashflow Canvas</h1>
+  <div class="banner">
+    <span class="badge" id="js-status">JS: loading…</span>
+    <label class="pill">ช่วงพยากรณ์ (วัน)
+      <input id="horizon" type="number" min="7" max="730" value="180" style="width:90px">
+    </label>
+    <button id="btn-run">คำนวณ/อัปเดตกราฟ</button>
+  </div>
+</header>
+
+<main>
+  <section class="stack">
+    <fieldset>
+      <legend>บัญชี & ยอดตั้งต้น</legend>
+      <div class="stack">
+        <div class="row">
+          <label>ชื่อบัญชี
+            <input id="acc-name" placeholder="เช่น กระเป๋าหลัก / KBank" />
+          </label>
+          <label>ยอดคงเหลือปัจจุบัน (บาท)
+            <input id="acc-balance" type="number" step="0.01" value="75000" />
+          </label>
+        </div>
+        <div class="right"><button id="btn-add-acc">เพิ่มบัญชี</button></div>
+        <table id="tbl-accounts">
+          <thead><tr><th>บัญชี</th><th style="width:30%">ยอด (บาท)</th><th style="width:50px"></th></tr></thead>
+          <tbody></tbody>
+        </table>
+      </div>
+    </fieldset>
+
+    <fieldset>
+      <legend>รายการประจำ (Recurring)</legend>
+      <div class="stack">
+        <div class="row">
+          <label>ชื่อรายการ
+            <input id="rec-name" placeholder="เงินเดือน / ผ่อนรถ / ค่าเช่าบ้าน">
+          </label>
+          <label>ประเภท
+            <select id="rec-type">
+              <option value="income">รายรับ</option>
+              <option value="expense">รายจ่าย</option>
+            </select>
+          </label>
+        </div>
+        <div class="row">
+          <label>จำนวนเงิน (บาท)
+            <input id="rec-amount" type="number" step="0.01" value="35000">
+          </label>
+          <label>ความถี่
+            <select id="rec-frequency">
+              <option value="monthly">รายเดือน</option>
+              <option value="weekly">รายสัปดาห์</option>
+              <option value="biweekly">ทุก 2 สัปดาห์</option>
+            </select>
+          </label>
+        </div>
+        <div id="monthly-fields" class="row">
+          <label>วันที่ของเดือน (1–31)
+            <input id="rec-day" type="number" min="1" max="31" value="25">
+          </label>
+          <label>กติกาเสาร์-อาทิตย์
+            <select id="rec-weekend">
+              <option value="stay">ตรงวันเดิม</option>
+              <option value="next_business_day">เลื่อนไปวันทำการถัดไป</option>
+              <option value="prev_business_day">เลื่อนมาเป็นวันทำการก่อนหน้า</option>
+            </select>
+          </label>
+        </div>
+        <div id="weekly-fields" class="row" style="display:none">
+          <label>วันในสัปดาห์
+            <select id="rec-weekday">
+              <option value="1">จันทร์</option>
+              <option value="2">อังคาร</option>
+              <option value="3">พุธ</option>
+              <option value="4">พฤหัสบดี</option>
+              <option value="5" selected>ศุกร์</option>
+              <option value="6">เสาร์</option>
+              <option value="0">อาทิตย์</option>
+            </select>
+          </label>
+          <label>เริ่มตั้งแต่ (YYYY-MM-DD)
+            <input id="rec-start" type="date">
+          </label>
+        </div>
+        <div class="right"><button id="btn-add-rec">เพิ่มรายการประจำ</button></div>
+        <table id="tbl-recurring">
+          <thead><tr><th>ชื่อ</th><th>ประเภท</th><th>จำนวน</th><th>ความถี่</th><th>วัน/สัปดาห์</th><th></th></tr></thead>
+          <tbody></tbody>
+        </table>
+      </div>
+    </fieldset>
+
+    <fieldset>
+      <legend>รายการครั้งคราว (One-off)</legend>
+      <div class="stack">
+        <div class="row">
+          <label>ชื่อรายการ
+            <input id="one-name" placeholder="ค่าซ่อมรถ / โบนัส / ฯลฯ">
+          </label>
+          <label>ประเภท
+            <select id="one-type">
+              <option value="income">รายรับ</option>
+              <option value="expense">รายจ่าย</option>
+            </select>
+          </label>
+        </div>
+        <div class="row">
+          <label>จำนวนเงิน (บาท)
+            <input id="one-amount" type="number" step="0.01" value="1200">
+          </label>
+          <label>วันที่เกิด (YYYY-MM-DD)
+            <input id="one-date" type="date">
+          </label>
+        </div>
+        <div class="right"><button id="btn-add-one">เพิ่มรายการครั้งคราว</button></div>
+        <table id="tbl-oneoff">
+          <thead><tr><th>วันที่</th><th>ชื่อ</th><th>ประเภท</th><th>จำนวน</th><th></th></tr></thead>
+          <tbody></tbody>
+        </table>
+      </div>
+    </fieldset>
+  </section>
+
+  <section class="stack">
+    <fieldset>
+      <legend>ภาพรวม & กราฟ</legend>
+      <div class="flex">
+        <div class="pill">ยอดรวมวันนี้: <strong id="sum-today" class="ok">—</strong></div>
+        <div class="pill">คาดการณ์สิ้นเดือนนี้: <strong id="sum-eom">—</strong></div>
+        <div class="pill">สุทธิ 30 วันหน้า: <strong id="sum-30d">—</strong></div>
+      </div>
+      <canvas id="chart" width="1200" height="360"></canvas>
+      <div class="muted">เส้นแกนแนวนอน = เงินคงเหลือ 0 บาท • จุดสีทึบ = วันที่คงเหลือติดลบ</div>
+    </fieldset>
+    <fieldset>
+      <legend>ไทม์ไลน์รายวัน</legend>
+      <table id="tbl-timeline">
+        <thead><tr>
+          <th>วันที่</th><th>In</th><th>Out</th><th>สุทธิ</th><th>คงเหลือสะสม</th>
+        </tr></thead>
+        <tbody></tbody>
+      </table>
+    </fieldset>
+  </section>
+</main>
+
+<script>
+// Mark JS is active
+document.getElementById('js-status').textContent = 'JS: active';
+document.getElementById('js-status').style.background = '#e6fffa';
+document.getElementById('js-status').style.borderColor = '#99f6e4';
+document.getElementById('noscript-hint').style.display = 'none';
+
+// Utilities & core logic (identical to v1.0, trimmed for brevity)
+const $ = s=>document.querySelector(s), $$=s=>Array.from(document.querySelectorAll(s));
+function fmt(n){ return Number(n).toLocaleString('th-TH',{minimumFractionDigits:2, maximumFractionDigits:2}); }
+function iso(d){ return d.toISOString().slice(0,10); }
+function lastDayOfMonth(y,m){ return new Date(y, m+1, 0).getDate(); }
+function parseDate(s){ const [Y,M,D] = s.split('-').map(Number); return new Date(Y, M-1, D); }
+function isWeekend(d){ const wd=d.getDay(); return wd===0||wd===6; }
+function adjustWeekend(d,rule){
+  if(rule==='stay') return d;
+  if(!isWeekend(d)) return d;
+  let nd=new Date(d);
+  if(rule==='next_business_day'){ while(isWeekend(nd)){ nd.setDate(nd.getDate()+1);} return nd; }
+  if(rule==='prev_business_day'){ while(isWeekend(nd)){ nd.setDate(nd.getDate()-1);} return nd; }
+  return d;
+}
+const store = { accounts:[], recurring:[], oneoff:[] };
+(function seed(){
+  store.accounts.push({name:'กระเป๋าหลัก', balance:75000});
+  const t=new Date(); const y=t.getFullYear(), m=t.getMonth();
+  store.recurring.push({name:'เงินเดือน', type:'income', amount:35000, frequency:'monthly', day:25, weekendRule:'prev_business_day', startDate: iso(new Date(y,m,1))});
+  store.recurring.push({name:'ผ่อนรถ', type:'expense', amount:12000, frequency:'monthly', day:5, weekendRule:'next_business_day', startDate: iso(new Date(y,m,1))});
+  store.oneoff.push({name:'ค่าซ่อมยาง', type:'expense', amount:1800, date: iso(new Date())});
+})();
+
+function renderTables(){
+  const tbA=$('#tbl-accounts tbody'); tbA.innerHTML='';
+  store.accounts.forEach((a,i)=>{
+    const tr=document.createElement('tr');
+    tr.innerHTML=`<td>${a.name}</td><td><span class="${a.balance<0?'danger':'ok'}">${fmt(a.balance)}</span></td><td><button data-del-acc="${i}">ลบ</button></td>`;
+    tbA.appendChild(tr);
+  });
+  const tbR=$('#tbl-recurring tbody'); tbR.innerHTML='';
+  store.recurring.forEach((r,i)=>{
+    const dayInfo = r.frequency==='monthly'? `ทุกเดือน วันที่ ${r.day}` : (r.frequency==='weekly'?`ทุกสัปดาห์ วัน ${['อา','จ','อ','พ','พฤ','ศ','ส'][r.weekday]}`:'ทุก 2 สัปดาห์');
+    const tr=document.createElement('tr');
+    tr.innerHTML=`<td>${r.name}</td><td>${r.type==='income'?'รับ':'จ่าย'}</td><td>${fmt(r.amount)}</td><td>${r.frequency}</td><td>${dayInfo}</td><td><button data-del-rec="${i}">ลบ</button></td>`;
+    tbR.appendChild(tr);
+  });
+  const tbO=$('#tbl-oneoff tbody'); tbO.innerHTML='';
+  store.oneoff.sort((a,b)=>a.date.localeCompare(b.date)).forEach((o,i)=>{
+    const tr=document.createElement('tr');
+    tr.innerHTML=`<td>${o.date}</td><td>${o.name}</td><td>${o.type==='income'?'รับ':'จ่าย'}</td><td>${fmt(o.amount)}</td><td><button data-del-one="${i}">ลบ</button></td>`;
+    tbO.appendChild(tr);
+  });
+  $$('button[data-del-acc]').forEach(b=>b.onclick=()=>{ const i=+b.getAttribute('data-del-acc'); store.accounts.splice(i,1); renderTables(); computeAndDraw(); });
+  $$('button[data-del-rec]').forEach(b=>b.onclick=()=>{ const i=+b.getAttribute('data-del-rec'); store.recurring.splice(i,1); renderTables(); computeAndDraw(); });
+  $$('button[data-del-one]').forEach(b=>b.onclick=()=>{ const i=+b.getAttribute('data-del-one'); store.oneoff.splice(i,1); renderTables(); computeAndDraw(); });
+}
+
+$('#btn-add-acc').onclick = ()=>{
+  const name=$('#acc-name').value.trim();
+  const bal=Number(($('#acc-balance').value||'0').toString().replace(/,/g,''));
+  if(!name) return alert('กรุณาใส่ชื่อบัญชี');
+  store.accounts.push({name,balance:bal}); $('#acc-name').value=''; renderTables(); computeAndDraw();
+};
+
+$('#rec-frequency').onchange = ()=>{
+  const f=$('#rec-frequency').value;
+  $('#monthly-fields').style.display = (f==='monthly')?'grid':'none';
+  $('#weekly-fields').style.display = (f!=='monthly')?'grid':'none';
+};
+
+$('#btn-add-rec').onclick = ()=>{
+  const name=$('#rec-name').value.trim();
+  if(!name) return alert('กรุณาใส่ชื่อรายการประจำ');
+  const type=$('#rec-type').value;
+  const amount=Number(($('#rec-amount').value||'0').toString().replace(/,/g,''));
+  const frequency=$('#rec-frequency').value;
+  const weekendRule=$('#rec-weekend').value;
+  const startDate=$('#rec-start').value || iso(new Date());
+  let payload={name,type,amount,frequency,weekendRule,startDate};
+  if(frequency==='monthly'){ payload.day=Math.max(1, Math.min(31, Number($('#rec-day').value||1))); }
+  else { payload.weekday=Number($('#rec-weekday').value); }
+  store.recurring.push(payload); $('#rec-name').value=''; renderTables(); computeAndDraw();
+};
+
+$('#btn-add-one').onclick = ()=>{
+  const name=$('#one-name').value.trim();
+  if(!name) return alert('กรุณาใส่ชื่อรายการครั้งคราว');
+  const type=$('#one-type').value;
+  const amount=Number(($('#one-amount').value||'0').toString().replace(/,/g,''));
+  const date=$('#one-date').value || iso(new Date());
+  store.oneoff.push({name,type,amount,date}); $('#one-name').value=''; renderTables(); computeAndDraw();
+};
+
+$('#btn-run').onclick = ()=> computeAndDraw();
+
+function expandRecurring(horizonDays){
+  const today=new Date(); today.setHours(0,0,0,0);
+  const until=new Date(today); until.setDate(until.getDate()+horizonDays);
+  const events=[]; const y0=today.getFullYear(), m0=today.getMonth();
+  const monthsCount=Math.ceil(horizonDays/30)+1;
+  for(const r of store.recurring){
+    if(r.frequency==='monthly'){
+      for(let k=0;k<monthsCount;k++){
+        const d=new Date(y0, m0+k, 1);
+        const y=d.getFullYear(), m=d.getMonth();
+        const ld= new Date(y, m+1, 0).getDate();
+        const day=Math.min(r.day||1, ld);
+        let when=new Date(y,m,day);
+        when=adjustWeekend(when, r.weekendRule||'stay');
+        const sdate=r.startDate? new Date(r.startDate): new Date(y0,m0,1);
+        if(when>=sdate && when>=today && when<=until){
+          events.push({date: iso(when), type:r.type, amount:Number(r.amount)});
+        }
+      }
+    }else{
+      const weekday=('weekday' in r)? Number(r.weekday):5;
+      let cur=r.startDate? new Date(r.startDate): new Date(today);
+      if(cur.getDay()!==weekday){ const diff=(7+weekday-cur.getDay())%7; cur.setDate(cur.getDate()+diff); }
+      while(cur<=until){ if(cur>=today){ events.push({date:iso(cur), type:r.type, amount:Number(r.amount)}); }
+        cur=new Date(cur); cur.setDate(cur.getDate() + (r.frequency==='biweekly'?14:7));
+      }
+    }
+  }
+  return events;
+}
+
+function computeTimeline(h){
+  const today=new Date(); today.setHours(0,0,0,0);
+  const until=new Date(today); until.setDate(until.getDate()+h);
+  const startBalance = store.accounts.reduce((s,a)=>s+Number(a.balance||0),0);
+  const rec=expandRecurring(h);
+  const oneFuture=store.oneoff.filter(o=>{ const d=new Date(o.date); d.setHours(0,0,0,0); return d>=today && d<=until; });
+  const byDate=new Map();
+  const add=(d,t,amt)=>{ const x=byDate.get(d)||{in:0,out:0}; if(t==='income') x.in+=amt; else x.out+=amt; byDate.set(d,x); };
+  rec.forEach(e=>add(e.date,e.type,e.amount)); oneFuture.forEach(o=>add(o.date,o.type,Number(o.amount)));
+  const rows=[]; let running=startBalance;
+  for(let d=new Date(today); d<=until; d.setDate(d.getDate()+1)){
+    const k=d.toISOString().slice(0,10); const v=byDate.get(k)||{in:0,out:0}; const net=v.in - v.out; running+=net;
+    rows.push({date:k, inflow:v.in, outflow:v.out, net, running});
+  }
+  const eom=new Date(today.getFullYear(), today.getMonth()+1, 0); const eomKey=eom.toISOString().slice(0,10);
+  const eomRow=rows.find(r=>r.date===eomKey) || rows[rows.length-1]; const d30=rows[Math.min(29, rows.length-1)] || rows[rows.length-1];
+  return {rows, todayRunning: rows[0]?.running ?? startBalance, eomRunning: eomRow.running, d30Running: d30.running, startBalance};
+}
+
+function drawChart(rows){
+  const cvs=$('#chart'), ctx=cvs.getContext('2d'); const W=cvs.width, H=cvs.height; ctx.clearRect(0,0,W,H);
+  if(!rows.length){ ctx.fillText('ไม่มีข้อมูล', 20,24); return; }
+  const vals=rows.map(r=>r.running), min=Math.min(...vals), max=Math.max(...vals), pad=28;
+  const x=i=> pad + i*(W-2*pad)/Math.max(1,rows.length-1);
+  const y=v=> (max===min)?(H/2):(H - pad - (v-min)*(H-2*pad)/(max-min));
+  ctx.beginPath(); for(let g=0; g<5; g++){ const gy=pad + g*(H-2*pad)/4; ctx.moveTo(pad,gy); ctx.lineTo(W-pad,gy);} ctx.strokeStyle='#eeeeee'; ctx.stroke();
+  const y0=y(0); ctx.beginPath(); ctx.moveTo(pad,y0); ctx.lineTo(W-pad,y0); ctx.strokeStyle='#cccccc'; ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(x(0), y(rows[0].running)); for(let i=1;i<rows.length;i++){ ctx.lineTo(x(i), y(rows[i].running)); } ctx.strokeStyle='#111'; ctx.lineWidth=1.5; ctx.stroke();
+  ctx.fillStyle='#b91c1c'; for(let i=0;i<rows.length;i++){ if(rows[i].running<0){ ctx.beginPath(); ctx.arc(x(i), y(rows[i].running), 3, 0, Math.PI*2); ctx.fill(); } }
+  ctx.fillStyle='#666'; ctx.fillText(fmt(min), 6, H - pad + 4); ctx.fillText(fmt(max), 6, pad + 4);
+}
+
+function renderTimelineTable(rows){
+  const tb=$('#tbl-timeline tbody'); tb.innerHTML='';
+  rows.slice(0,120).forEach(r=>{
+    const tr=document.createElement('tr');
+    tr.innerHTML=`<td>${r.date}</td><td class="ok">${fmt(r.inflow)}</td><td class="danger">-${fmt(r.outflow)}</td><td>${fmt(r.net)}</td><td><strong>${fmt(r.running)}</strong></td>`;
+    tb.appendChild(tr);
+  });
+  if(rows.length>120){ const tr=document.createElement('tr'); tr.innerHTML=`<td colspan="5" class="muted">…แสดง 120 วันแรกจากทั้งหมด ${rows.length} วัน</td>`; tb.appendChild(tr); }
+}
+
+function computeAndDraw(){
+  const h = Math.max(7, Math.min(730, Number($('#horizon').value || 180)));
+  const {rows, todayRunning, eomRunning, d30Running, startBalance} = computeTimeline(h);
+  $('#sum-today').textContent = fmt(todayRunning);
+  $('#sum-today').className = todayRunning<0?'danger':'ok';
+  $('#sum-eom').textContent = fmt(eomRunning);
+  $('#sum-eom').className = eomRunning<0?'danger':'ok';
+  $('#sum-30d').textContent = fmt(d30Running - startBalance);
+  $('#sum-30d').className = (d30Running - startBalance)<0?'danger':'ok';
+  drawChart(rows); renderTimelineTable(rows);
+}
+
+$('#one-date').value = iso(new Date());
+$('#rec-start').value = iso(new Date());
+
+renderTables(); computeAndDraw();
+</script>
+</body>
+</html>
